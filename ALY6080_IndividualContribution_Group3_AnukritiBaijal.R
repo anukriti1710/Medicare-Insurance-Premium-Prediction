@@ -13,190 +13,312 @@ library(ggplot2)
 library(ggcorrplot)
 library(corrplot)
 
-# Import the dataset
+#Read the Result CSV file
+df_2011<- read.csv(file.choose(), sep = ",", header = TRUE, stringsAsFactors = FALSE)
+df_2012<- read.csv(file.choose(), sep = ",", header = TRUE, stringsAsFactors = FALSE)
+df_2013<- read.csv(file.choose(), sep = ",", header = TRUE, stringsAsFactors = FALSE)
 df_2014<- read.csv(file.choose(), sep = ",", header = TRUE, stringsAsFactors = FALSE)
 
-# Checking for missing values
-print(sum(is.na(df_2014)))
+# Adding a column to indicate years
+df_2011['year']=2011
+df_2012['year']=2012
+df_2013['year']=2013
+df_2014['year']=2014
 
-# Summary of the data for the year 2014
-summary(df_2014)
+# Combining all the years of data frames into one data frame
+df_main<-rbind(df_2011, df_2012, df_2013, df_2014)
 
-# Creating a new column that contains approximate total payment for year 2014
-df_2014['total_payments_approx']=df_2014['total_discharges']*df_2014['average_total_payments']
+# Adding a column to indicate the region
+df_main <- df_main %>%
+  mutate(region = case_when(
+    provider_state %in% c("CT", "DE", "ME", "MD", "MA", "NH", "NJ", "NY", "PA", "RI", "VT") ~ "Northeast",
+    provider_state %in% c("AL", "AR", "FL", "GA", "KY", "LA", "MS", "NC", "SC", "TN", "VA", "WV") ~ "Southeast",
+    provider_state %in% c("AK", "ID", "MT", "OR", "WA") ~ "Northwest",
+    provider_state %in% c("AZ", "CA", "CO", "HI", "NV", "NM", "OK", "TX", "UT") ~ "Southwest",
+    TRUE ~ "Other"
+  ))
+# Duplicating to avoid accidental change of the main data frame
+df<-df_main
 
-# Creating a new column that contains approximate total covered charges for year 2014
-df_2014['total_covered_charges_approx']=df_2014['total_discharges']*df_2014['average_covered_charges']
+# Creating new data frame for the DRG 193, 194, 195
+df_193=df[grepl("193", df$drg_definition), ]
+df_194=df[grepl("194", df$drg_definition), ]
+df_195=df[grepl("195", df$drg_definition), ]
 
-# Calculating mean of total payments for year 2014
-df_2014_avg_total=mean(df_2014$total_payments_approx)
+# Combining all the DRGs related to Simple Pneumonia into one data frame 
+df_drg<-rbind(df_193, df_194, df_195)
 
-# Encode the string column 'hospital_referral_region_description' using label encoding for the year 2014
-df_2014$hospital_referral_region_description_encoded=as.integer(factor(df_2014$hospital_referral_region_description))
+# Redefining the data frames for different years with only DRG 193, 194, 195 included
+df2011 <- df_drg %>% filter(year == 2011)
+df2012 <- df_drg %>% filter(year == 2012)
+df2013 <- df_drg %>% filter(year == 2013)
+df2014 <- df_drg %>% filter(year == 2014)
 
-# Encode the string column 'provider_city' using label encoding for year 2014
-df_2014$provider_city_encoded=as.integer(factor(df_2014$provider_city))
+# Number of Hospitals in different HRR treats DRGS 193, 194, 195
+hrr_2011 <- df2011 %>%
+  group_by(hospital_referral_region_description) %>%
+  summarize(number_of_hospitals = n())
 
-# Calculating CMI for year 2014
-df_2014$cmi=round((df_2014$total_payments_approx / df_2014_avg_total), digits = 2)
+hrr_2012 <- df2012 %>%
+  group_by(hospital_referral_region_description) %>%
+  summarize(number_of_hospitals = n())
 
-# Distribution of average_medicare_payments
-ggplot(df_2014, aes(x = average_medicare_payments)) + geom_histogram(binwidth = 5000, fill = "red", color = "black") + xlab("Average Medicare Payments ($)") + ylab("Count") + ggtitle("Distribution of Average Medicare Payments")
+hrr_2013 <- df2013 %>%
+  group_by(hospital_referral_region_description) %>%
+  summarize(number_of_hospitals = n())
 
-# Check normality of value per sq ft
-qqnorm(df_2014$average_medicare_payments, pch=16, col="red", main=expression("Check Average Medicare Payments Normality"))
+hrr_2014 <- df2014 %>%
+  group_by(hospital_referral_region_description) %>%
+  summarize(number_of_hospitals = n())
 
-# Add blue line to check normality
-qqline(df_2014$average_medicare_payments, col="blue")  
+# Arrange the data in descending order of the number of hospitals
+hrr_2011_sorted <- hrr_2011 %>%
+  arrange(desc(number_of_hospitals))
 
-# Distribution of total_payments_approx
-ggplot(df_2014, aes(x = total_payments_approx)) + geom_histogram(binwidth = 1000000, fill = "green", color = "black") + xlab("Approximate Total Payments ($)") + ylab("Count") + ggtitle("Distribution of Approximate Total Payments")
+# Print the top 10 and bottom 10
+top_10 <- head(hrr_2011_sorted, 10)
+bottom_10 <- tail(hrr_2011_sorted, 10)
 
-# Distribution of total_covered_charges_approx
-ggplot(df_2014, aes(x = total_covered_charges_approx)) + geom_histogram(binwidth = 2500000, fill = "orange", color = "black") + xlab("Approximate Total Covered Charges ($)") + ylab("Count") + ggtitle("Distribution of Approximate Total Covered Charges")
+# Assuming you want to create two classes: high and low payments
+threshold_2011 <- median(df2011$average_medicare_payments)
+threshold_2012 <- median(df2012$average_medicare_payments)
+threshold_2013 <- median(df2013$average_medicare_payments)
+threshold_2014 <- median(df2014$average_medicare_payments)
 
-# Subset of rows where DRG is 291
-sub_df2014 = df_2014[df_2014$drg_definition == "291 - HEART FAILURE & SHOCK W MCC",]
+total_threshold<-data.frame(
+  year = c(2011, 2012, 2013, 2014),
+  threshold = c(threshold_2011,threshold_2012, threshold_2013, threshold_2014)
+)
 
-# Selecting sample from the dataset
-sample_2014 = sub_df2014%>% sample_n(1000)
+# Convert to binary classification problem
+df2011$payment_class <- ifelse(df2011$average_medicare_payments > threshold_2011, "high", "low")
+df2012$payment_class <- ifelse(df2012$average_medicare_payments > threshold_2012, "high", "low")
+df2013$payment_class <- ifelse(df2013$average_medicare_payments > threshold_2013, "high", "low")
+df2014$payment_class <- ifelse(df2014$average_medicare_payments > threshold_2014, "high", "low")
 
-# Scatter Plot for Total Discharges vs. Average Medicare Payments for DRG 291
-ggplot(data = sample_2014, aes(x=`total_discharges`, y=`average_medicare_payments`))+
-  geom_point(color = "purple")+
-  stat_smooth(method="lm")+
-  labs(title = "Scatter Plot for Total Discharges vs. Average Medicare Payments for DRG 291",
-       x = "Total Discharges",
-       y = "Average Total Payments ($)") +
-  theme_minimal()
+# Merge the hospital count data with the original data 
+df2011 <- left_join(df2011, hrr_2011, by = c("hospital_referral_region_description" = "hospital_referral_region_description"))
+df2012 <- left_join(df2012, hrr_2012, by = c("hospital_referral_region_description" = "hospital_referral_region_description"))
+df2013 <- left_join(df2013, hrr_2013, by = c("hospital_referral_region_description" = "hospital_referral_region_description"))
+df2014 <- left_join(df2014, hrr_2014, by = c("hospital_referral_region_description" = "hospital_referral_region_description"))
 
-# Scatter Plot for Total Payments Approx vs. Average Medicare Payments for DRG 291
-ggplot(data = sample_2014, aes(x=`total_payments_approx`, y=`average_medicare_payments`))+
-  geom_point(color = "maroon")+
-  stat_smooth(method="lm")+
-  labs(title = "Scatter Plot for Total Payments Approx vs. Average Medicare Payments for DRG 291",
-       x = "Total Payments Approx ($)",
-       y = "AAverage Medicare Payments ($)") +
-  theme_minimal()
+# Renaming the new columns for the data frames 
+#df_2011 <- df_2011 %>%
+#  rename(number_of_hospitals = number_of_hospitals.x)
 
-# Scatter Plot for Hospital Referral Region vs. Average Medicare Payments for DRG 291
-ggplot(data = sample_2014, aes(x=`hospital_referral_region_description_encoded`, y=`average_medicare_payments`))+
-  geom_point(color = "darkblue")+
-  stat_smooth(method="lm")+
-  labs(title = "Scatter Plot for Hospital Referral Region vs. Average Medicare Payments for DRG 291",
+# Deleting the duplicate columns for the data frames
+#df_2011 <- df_2011 %>%
+#  select(-number_of_hospitals.y)
+
+# Getting distinct values from the columns to be able to convert into binary
+print(unique(df2011$hospital_type))
+print(unique(df2011$hospital_ownership))
+
+# Summary of the data frames
+summary(df2011)
+summary(df2012)
+summary(df2013)
+summary(df2014)
+
+# Bar plot for top 10 HRRs with most number of hospitals
+ggplot(top_10, aes(x = reorder(hospital_referral_region_description, -number_of_hospitals), y = number_of_hospitals)) +
+  geom_bar(stat = "identity", fill = "darkorange") +
+  geom_text(aes(label = number_of_hospitals), vjust = -0.5, size = 3) +
+  labs(title = "Top 10 HRRs by Number of Hospitals",
        x = "Hospital Referral Region",
-       y = "Average Medicare Payments ($)") +
-  theme_minimal()
+       y = "Number of Hospitals") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-# Scatter Plot for Provider City vs. Average Medicare Payments for DRG 291
-ggplot(data = sample_2014, aes(x=`provider_city`, y=`average_medicare_payments`))+
-  geom_point(color = "orange")+
-  stat_smooth(method="lm")+
-  labs(title = "Scatter Plot for Provider City vs. Average Medicare Payments for DRG 291",
-       x = "Provider City",
-       y = "Average Medicare Payments ($)") +
-  theme_minimal()
+# Bar plot for bottom 10 HRRs with the least number of hospitals
+ggplot(bottom_10, aes(x = reorder(hospital_referral_region_description, number_of_hospitals), y = number_of_hospitals)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  geom_text(aes(label = number_of_hospitals), vjust = -0.5, size = 3) +
+  labs(title = "Bottom 10 HRRs by Number of Hospitals",
+       x = "Hospital Referral Region",
+       y = "Number of Hospitals") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-# Scatter Plot for CMI vs. Average Medicare Payments for DRG 291
-ggplot(data = sample_2014, aes(x=`cmi`, y=`average_medicare_payments`))+
-  geom_point(color = "darkgreen")+
-  stat_smooth(method="lm")+
-  labs(title = "Scatter Plot for CMI vs. Average Medicare Payments for DRG 291",
-       x = "CMI",
-       y = "Average Medicare Payments ($)") +
-  theme_minimal()
+# Total cases for DRG 193-Simple Pneumonia W/O MCC W/O CC for different years
+# Histogram of the Average Medicare Payments
+hist((df_drg$average_medicare_payments), main = "Histogram of Average Medicare Payments for Simple Pneumonia cases", xlab = "Values", col = "turquoise", border = "black")
 
-########################
-# MODEL BUILDING
-########################
+# Bar plot for Total Discharges for Simple Pneumonia in Different Regions (2011)
+ggplot(df2011, aes(x = region, y = total_discharges, fill = region)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Total Simple Pneumonia Discharges in Different Regions (2011)",
+       x = "Region",
+       y = "Total Discharges") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-# Combining all the years of data frames into one data frame 
-df<-rbind(df_2011, df_2012, df_2013)
+# Bar plot for Total Discharges for Simple Pneumonia in Different Regions (2012)
+ggplot(df2012, aes(x = region, y = total_discharges, fill = region)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Total Simple Pneumonia Discharges in Different Regions (2012)",
+       x = "Region",
+       y = "Total Discharges") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-# Creating a new column that contains approximate total payment
-df['total_payments_approx']=df['total_discharges']*df['average_total_payments']
+# Bar plot for Total Discharges for Simple Pneumonia in Different Regions (2013)
+ggplot(df2013, aes(x = region, y = total_discharges, fill = region)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Total Simple Pneumonia Discharges in Different Regions (2013)",
+       x = "Region",
+       y = "Total Discharges") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-# Creating a new column that contains approximate total covered charges
-df['total_covered_charges_approx']=df['total_discharges']*df['average_covered_charges']
+# Bar plot for Total Discharges for Simple Pneumonia in Different Regions (2014)
+ggplot(df2014, aes(x = region, y = total_discharges, fill = region)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Total Simple Pneumonia Discharges in Different Regions (2014)",
+       x = "Region",
+       y = "Total Discharges") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-# Summary of the data frame
-summary(df)
+# Box Plot for Average Medicare Payments for the Region (2011)
+plot_ly(data = df2011, x = ~region, y = ~average_medicare_payments,
+        type = 'box', hoverinfo = 'text', text = ~region,
+        marker = list(color = 'lightblue', line = list(color = 'darkblue'))) %>%
+  layout(title = "Average Medicare Payments for the Region (2011)",
+         xaxis = list(title = "Regions"),
+         yaxis = list(title = "Average Medicare Payments"))
 
-# Creating new data frame with filtered rows where the 'drg_definition' column contains '291'
-df_291=df[grepl("291", df$drg_definition), ]
+# Box Plot for Average Medicare Payments for the Regions (2012)
+plot_ly(data = df2012, x = ~region, y = ~average_medicare_payments,
+        type = 'box', hoverinfo = 'text', text = ~region,
+        marker = list(color = 'lightblue', line = list(color = 'darkblue'))) %>%
+  layout(title = "Average Medicare Payments for the Regions (2012)",
+         xaxis = list(title = "Regions"),
+         yaxis = list(title = "Average Medicare Payments"))
 
-# Creating new data frame with filtered rows where the 'drg_definition' column contains '292'
-df_292=df[grepl("292", df$drg_definition), ]
+# Box Plot for Average Medicare Payments for the Regions (2013)
+plot_ly(data = df2013, x = ~region, y = ~average_medicare_payments,
+        type = 'box', hoverinfo = 'text', text = ~region,
+        marker = list(color = 'lightblue', line = list(color = 'darkblue'))) %>%
+  layout(title = "Average Medicare Payments for the Regions (2013)",
+         xaxis = list(title = "Regions"),
+         yaxis = list(title = "Average Medicare Payments"))
 
-# Creating new data frame with filtered rows where the 'drg_definition' column contains '293'
-df_293=df[grepl("293", df$drg_definition), ]
+# Box Plot for Average Medicare Payments for the Regions (2014)
+plot_ly(data = df2014, x = ~region, y = ~average_medicare_payments,
+        type = 'box', hoverinfo = 'text', text = ~region,
+        marker = list(color = 'lightblue', line = list(color = 'darkblue'))) %>%
+  layout(title = "Average Medicare Payments for the Region (2014)",
+         xaxis = list(title = "Regions"),
+         yaxis = list(title = "Average Medicare Payments"))
 
-# Calculating mean of total payments for DRG 291
-df_291_avg_total=mean(df_291$total_payments_approx)
+##########################
+# DRG: 193, 194, 195
+##########################
+# Box Plot for Average Medicare Payments for DRGs 193, 194, 195 for all 4 years
+plot_ly(data = df_drg, x = ~drg_definition, y = ~average_medicare_payments,
+        type = 'box', hoverinfo = 'text', text = ~drg_definition,
+        marker = list(color = 'lightblue', line = list(color = 'darkblue'))) %>%
+  layout(title = "Average Medicare Payments for DRGs 193, 194, 195 for all 4 years",
+         xaxis = list(title = "DRG"),
+         yaxis = list(title = "Average Medicare Payments"))
 
-# Calculating mean of total payments for DRG 291
-df_292_avg_total=mean(df_292$total_payments_approx)
+# Bar plot for Threshold values for Simple Pneumonia for different years (2011-2014)
+ggplot(total_threshold, aes(x = year, y = threshold, fill = year)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = threshold), vjust = -0.5, color = "darkblue", size = 3) +
+  labs(title = "Threshold values for Simple Pneumonia for different years (2011-2014)",
+       x = "Years",
+       y = "Threshold value ($)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-# Calculating mean of total payments for DRG 291
-df_293_avg_total=mean(df_293$total_payments_approx)
+###################
+# Prediction Model
+###################
+# Converting categorical into numerical
+df2011$emergency_services <- as.factor(df2011$emergency_services)
+df2012$emergency_services <- as.factor(df2012$emergency_services)
+df2013$emergency_services <- as.factor(df2013$emergency_services)
+df2014$emergency_services <- as.factor(df2014$emergency_services)
 
-# Calculating CMI for DRG 291
-df_291$cmi=round((df_291$total_payments_approx / df_291_avg_total), digits = 2)
+df2011$hospital_ownership <- as.factor(df2011$hospital_ownership)
+df2012$hospital_ownership <- as.factor(df2012$hospital_ownership)
+df2013$hospital_ownership <- as.factor(df2013$hospital_ownership)
+df2014$hospital_ownership <- as.factor(df2014$hospital_ownership)
 
-# Calculating CMI for DRG 292
-df_292$cmi=round((df_292$total_payments_approx / df_292_avg_total), digits = 2)
+df2011$region <- as.factor(df2011$region)
+df2012$region <- as.factor(df2012$region)
+df2013$region <- as.factor(df2013$region)
+df2014$region <- as.factor(df2014$region)
 
-# Calculating CMI for DRG 293
-df_293$cmi=round((df_293$total_payments_approx / df_293_avg_total), digits = 2)
+df2011$hospital_referral_region_description <- as.factor(df2011$hospital_referral_region_description)
+df2012$hospital_referral_region_description <- as.factor(df2012$hospital_referral_region_description)
+df2013$hospital_referral_region_description <- as.factor(df2013$hospital_referral_region_description)
+df2014$hospital_referral_region_description <- as.factor(df2014$hospital_referral_region_description)
 
-# Encode the string column 'hospital_referral_region_description' using label encoding for DRG 291
-df_291$hospital_referral_region_description_encoded=as.integer(factor(df_291$hospital_referral_region_description))
+# Combining all the years of data frames into one data frame
+df<-rbind(df2011, df2012, df2013, df2014)
 
-# Encode the string column 'hospital_referral_region_description' using label encoding for DRG 292
-df_292$hospital_referral_region_description_encoded=as.integer(factor(df_292$hospital_referral_region_description))
+# Setting seed value
+set.seed(1000)
 
-# Encode the string column 'hospital_referral_region_description' using label encoding for DRG 293
-df_293$hospital_referral_region_description_encoded=as.integer(factor(df_293$hospital_referral_region_description))
+#################
+# YEAR 2011
+#################
+# Split the data
+splitIndex <- createDataPartition(df$payment_class, p = 0.8, list = FALSE)
+train_data <- df[splitIndex, ]
+test_data <- df[-splitIndex, ]
 
-# Encode the string column 'provider_city' using label encoding for DRG 291
-df_291$provider_city_encoded=as.integer(factor(df_291$provider_city))
+# Converting payment class into factors 
+train_data$payment_class <- as.factor(train_data$payment_class)
+test_data$payment_class <- as.factor(test_data$payment_class)
 
-# Encode the string column 'provider_city' using label encoding for DRG 292
-df_292$provider_city_encoded=as.integer(factor(df_292$provider_city))
+###################
+# Decision Tree
+###################
+# Create the model
+tree_spec <- decision_tree() %>%
+  set_engine("rpart") %>%
+  set_mode("classification")
 
-# Encode the string column 'provider_city' using label encoding for DRG 293
-df_293$provider_city_encoded=as.integer(factor(df_293$provider_city))
+# Fit the model
+tree_fit <- tree_spec %>%
+  fit(payment_class ~ region + total_discharges + hospital_ownership + emergency_services + average_covered_charges, data = train_data)
 
-# Setting seed value 
-#set.seed(10)
+# Make predictions
+predictions <- tree_fit %>%
+  predict(test_data) %>%
+  pull(.pred_class)
 
-#df_2=rbind(df_291, df_292, df_293)
+# Calculate RMSE and R-Squared
+#metrics <- metric_set(rmse, rsq)
+#model_performance <- test_data %>%
+#  mutate(predictions = predictions) %>%
+#  metrics(truth = average_medicare_payments, estimate = predictions)
 
-# Split the data into features and target
-#X_train <- df_2[, c('hospital_referral_region_description_encoded', 'total_covered_charges_approx', 'total_payments_approx', 'cmi', 'provider_city_encoded')]
+#print(model_performance)
 
-#y_train <- df_2$average_medicare_payments
+# Calculate accuracy
+accuracy <- mean(predictions == test_data$payment_class)
 
-#X_test=df_2014[c('hospital_referral_region_description_encoded', 'total_covered_charges_approx', 'total_payments_approx', 'cmi', 'provider_city_encoded')]
+cat("Accuracy:", round(accuracy*100,2), "%\n")
 
-#########################
-# Model 1: Regression Model
-#########################
+#################
+# Naive Bayes
+#################
+# Specify the features used for prediction
+features <- c("total_discharges", "number_of_hospitals", "hospital_ownership", "emergency_services", "hospital_referral_region_description","average_covered_charges")
 
-# Create a linear regression model
-#regressor <- lm(y_train ~ ., data = df_2)
+# Train a Naive Bayes model
+nb_model <- naiveBayes(train_data[, features], train_data$payment_class)
 
-# Predict on the test set
-#y_pred=predict(regressor, newdata = X_test)
+# Make predictions on the test data
+predictions2 <- predict(nb_model, newdata = test_data[, features])
 
-# Calculate Mean Squared Error (MSE)
-#mse=mean((y_pred - y_test)^2)
+# Calculate accuracy
+accuracy2 <- mean(predictions2 == test_data$payment_class)
 
-# Print the Mean Squared Error
-#cat("MSE:", mse, "\n")
-
-# Calculate R-squared (R2) as a measure of accuracy
-#r2=1 - (sum((y_test - y_pred)^2) / sum((y_test - mean(y_test))^2))
-
-# Print the R-squared value
-#cat("R-squared (Accuracy):", round(r2 * 100, 2), "%\n")
+# Display accuracy
+cat("Accuracy:", round(accuracy2 * 100, 2), "%")
