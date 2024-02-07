@@ -1,6 +1,5 @@
 ########################
 # ANUKRITI BAIJAL
-# EDA Year 2014
 ########################
 library(caTools)
 library(stats)
